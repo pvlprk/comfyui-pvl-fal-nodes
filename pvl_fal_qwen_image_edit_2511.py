@@ -12,7 +12,6 @@ class PVL_fal_QwenImageEdit2511_API:
         return {
             "required": {
                 "prompt": ("STRING", {"multiline": True}),
-                "image": ("IMAGE",),
                 "num_inference_steps": ("INT", {"default": 28, "min": 1, "max": 100}),
                 "guidance_scale": ("FLOAT", {"default": 4.5, "min": 1.0, "max": 20.0, "step": 0.1}),
                 "num_images": ("INT", {"default": 1, "min": 1, "max": 8}),
@@ -25,6 +24,15 @@ class PVL_fal_QwenImageEdit2511_API:
                 "debug_log": ("BOOLEAN", {"default": False}),
             },
             "optional": {
+                # Up to 8 optional image inputs
+                "image_1": ("IMAGE",),
+                "image_2": ("IMAGE",),
+                "image_3": ("IMAGE",),
+                "image_4": ("IMAGE",),
+                "image_5": ("IMAGE",),
+                "image_6": ("IMAGE",),
+                "image_7": ("IMAGE",),
+                "image_8": ("IMAGE",),
                 "negative_prompt": ("STRING", {"multiline": True, "default": ""}),
                 "image_size": (
                     [
@@ -48,16 +56,28 @@ class PVL_fal_QwenImageEdit2511_API:
     FUNCTION = "generate_image"
     CATEGORY = "PVL_tools_FAL"
 
-    def _collect_image_urls(self, image: torch.Tensor) -> List[str]:
+    def _collect_image_urls(self, images: List[torch.Tensor], debug: bool = False) -> List[str]:
         urls: List[str] = []
-        if not torch.is_tensor(image):
-            return urls
-        img = image.detach()
-        if img.ndim == 4:
-            for i in range(img.shape[0]):
-                urls.append(ImageUtils.image_to_data_uri(img[i]))
-        else:
-            urls.append(ImageUtils.image_to_data_uri(img))
+        for idx, img in enumerate(images):
+            if img is None or not torch.is_tensor(img):
+                continue
+            tensor = img.detach()
+            try:
+                if tensor.ndim == 4:
+                    for frame_idx in range(tensor.shape[0]):
+                        urls.append(ImageUtils.image_to_data_uri(tensor[frame_idx]))
+                        if debug:
+                            print(
+                                f"[Qwen Image Edit 2511] encoded image_{idx + 1} frame {frame_idx + 1}"
+                            )
+                else:
+                    urls.append(ImageUtils.image_to_data_uri(tensor))
+                    if debug:
+                        print(f"[Qwen Image Edit 2511] encoded image_{idx + 1}")
+            except Exception as e:
+                print(f"[Qwen Image Edit 2511] image_{idx + 1} encode error: {e}")
+        if debug:
+            print(f"[Qwen Image Edit 2511] total encoded images: {len(urls)}")
         return urls
 
     def _build_image_size(self, image_size, custom_width, custom_height):
@@ -86,6 +106,14 @@ class PVL_fal_QwenImageEdit2511_API:
         custom_width=0,
         custom_height=0,
         seed=-1,
+        image_1=None,
+        image_2=None,
+        image_3=None,
+        image_4=None,
+        image_5=None,
+        image_6=None,
+        image_7=None,
+        image_8=None,
     ):
         def action(attempt, total_attempts):
             if debug_log:
@@ -94,9 +122,10 @@ class PVL_fal_QwenImageEdit2511_API:
                     f"num_images={num_images} sync_mode={sync_mode}"
                 )
 
-            image_urls = self._collect_image_urls(image)
+            images = [image_1, image_2, image_3, image_4, image_5, image_6, image_7, image_8]
+            image_urls = self._collect_image_urls(images, debug=debug_log)
             if not image_urls:
-                raise RuntimeError("No valid input image provided.")
+                raise RuntimeError("No valid input images provided.")
 
             arguments = {
                 "prompt": prompt,

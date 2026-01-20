@@ -29,6 +29,7 @@ class PVL_fal_QwenImageEdit2511MultipleAngles_API:
                 "negative_prompt": ("STRING", {"multiline": True, "default": ""}),
                 "image_size": (
                     [
+                        "auto",
                         "square_hd",
                         "square",
                         "portrait_4_3",
@@ -37,7 +38,7 @@ class PVL_fal_QwenImageEdit2511MultipleAngles_API:
                         "landscape_16_9",
                         "custom",
                     ],
-                    {"default": "custom"},
+                    {"default": "auto"},
                 ),
                 "custom_width": ("INT", {"default": 0, "min": 0, "max": 2048, "step": 64}),
                 "custom_height": ("INT", {"default": 0, "min": 0, "max": 2048, "step": 64}),
@@ -58,6 +59,9 @@ class PVL_fal_QwenImageEdit2511MultipleAngles_API:
         return [ImageUtils.image_to_data_uri(img)]
 
     def _build_image_size(self, image_size, custom_width, custom_height):
+        if image_size == "auto":
+            # Omit image_size so API uses the input resolution
+            return None
         if image_size == "custom":
             if custom_width > 0 and custom_height > 0:
                 return {"width": int(custom_width), "height": int(custom_height)}
@@ -83,7 +87,7 @@ class PVL_fal_QwenImageEdit2511MultipleAngles_API:
         debug_log=False,
         additional_prompt="",
         negative_prompt="",
-        image_size="custom",
+        image_size="auto",
         custom_width=0,
         custom_height=0,
         seed=-1,
