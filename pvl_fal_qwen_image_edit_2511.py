@@ -92,7 +92,6 @@ class PVL_fal_QwenImageEdit2511_API:
     def generate_image(
         self,
         prompt,
-        image,
         num_inference_steps,
         guidance_scale,
         num_images,
