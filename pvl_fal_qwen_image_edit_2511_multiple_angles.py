@@ -42,7 +42,9 @@ class PVL_fal_QwenImageEdit2511MultipleAngles_API:
                 ),
                 "custom_width": ("INT", {"default": 0, "min": 0, "max": 2048, "step": 64}),
                 "custom_height": ("INT", {"default": 0, "min": 0, "max": 2048, "step": 64}),
-                "seed": ("INT", {"default": -1, "min": -1, "max": 4294967295}),
+                # ComfyUI can auto-randomize seeds beyond 32-bit; accept 64-bit inputs,
+                # then clamp before sending to the FAL API.
+                "seed": ("INT", {"default": -1, "min": -1, "max": 0xFFFFFFFFFFFFFFFF}),
             },
         }
 
@@ -127,7 +129,7 @@ class PVL_fal_QwenImageEdit2511MultipleAngles_API:
             if negative_prompt:
                 arguments["negative_prompt"] = negative_prompt
             if seed != -1:
-                arguments["seed"] = seed
+                arguments["seed"] = int(seed) & 0xFFFFFFFF
 
             if debug_log:
                 print(
