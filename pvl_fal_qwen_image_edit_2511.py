@@ -125,12 +125,9 @@ class PVL_fal_QwenImageEdit2511_API:
 
             images = [image_1, image_2, image_3, image_4, image_5, image_6, image_7, image_8]
             image_urls = self._collect_image_urls(images, debug=debug_log)
-            if not image_urls:
-                raise RuntimeError("No valid input images provided.")
 
             arguments = {
                 "prompt": prompt,
-                "image_urls": image_urls,
                 "num_inference_steps": num_inference_steps,
                 "guidance_scale": guidance_scale,
                 "num_images": num_images,
@@ -153,11 +150,23 @@ class PVL_fal_QwenImageEdit2511_API:
             if debug_log:
                 print(f"[Qwen Image Edit 2511] image_urls={len(image_urls)} args={list(arguments.keys())}")
 
+            # If no input images were provided, fall back to text-to-image.
+            if not image_urls:
+                if isinstance(prompt, str) and prompt.strip():
+                    model_id = "fal-ai/qwen-image-2512"
+                    if debug_log:
+                        print(f"[Qwen Image Edit 2511] no images provided -> using {model_id}")
+                else:
+                    raise RuntimeError("No valid input images provided and prompt is empty.")
+            else:
+                model_id = "fal-ai/qwen-image-edit-2511"
+                arguments["image_urls"] = image_urls
+
             if hasattr(ApiHandler, "submit_only") and hasattr(ApiHandler, "poll_and_get_result"):
-                req_info = ApiHandler.submit_only("fal-ai/qwen-image-edit-2511", arguments, timeout=timeout_sec, debug=debug_log)
+                req_info = ApiHandler.submit_only(model_id, arguments, timeout=timeout_sec, debug=debug_log)
                 result = ApiHandler.poll_and_get_result(req_info, timeout=timeout_sec, debug=debug_log)
             else:
-                result = ApiHandler.submit_and_get_result("fal-ai/qwen-image-edit-2511", arguments)
+                result = ApiHandler.submit_and_get_result(model_id, arguments)
 
             out = ResultProcessor.process_image_result(result)
             img_tensor = out[0] if isinstance(out, tuple) else out
