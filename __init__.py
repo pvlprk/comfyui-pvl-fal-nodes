@@ -1,6 +1,11 @@
 from .pvl_fal_depth_anything_v2 import PVL_fal_DepthAnythingV2_API
 from .pvl_fal_flux2_camera_ctrl import PVL_fal_Flux2CameraCtrl_API
+from .pvl_fal_flux2_klein_9b_base_lora import PVL_fal_Flux2Klein9BBaseLora_API
+from .pvl_fal_flux2_klein_9b_base_lora_edit_chain import (
+    PVL_fal_Flux2Klein9BBaseLoraEditChain_API,
+)
 from .pvl_fal_flux2_dev import PVL_fal_Flux2Dev_API
+from .pvl_fal_flux2_klein_9b_edit import PVL_fal_Flux2Klein9BEdit_API
 from .pvl_fal_flux2_flex import PVL_fal_Flux2Flex_API
 from .pvl_fal_flux2_pro import PVL_fal_Flux2Pro_API
 from .pvl_fal_flux_dev import PVL_fal_FluxDev_API
@@ -39,7 +44,10 @@ from .pvl_fal_segment_x5 import PVL_fal_EvfSamX5_API
 NODE_CLASS_MAPPINGS = {
     "PVL_fal_DepthAnythingV2_API": PVL_fal_DepthAnythingV2_API,
     "PVL_fal_Flux2CameraCtrl_API": PVL_fal_Flux2CameraCtrl_API,
+    "PVL_fal_Flux2Klein9BBaseLora_API": PVL_fal_Flux2Klein9BBaseLora_API,
+    "PVL_fal_Flux2Klein9BBaseLoraEditChain_API": PVL_fal_Flux2Klein9BBaseLoraEditChain_API,
     "PVL_fal_Flux2Dev_API": PVL_fal_Flux2Dev_API,
+    "PVL_fal_Flux2Klein9BEdit_API": PVL_fal_Flux2Klein9BEdit_API,
     "PVL_fal_Flux2Flex_API": PVL_fal_Flux2Flex_API,
     "PVL_fal_Flux2Pro_API": PVL_fal_Flux2Pro_API,
     "PVL_fal_FluxDev_API": PVL_fal_FluxDev_API,
@@ -77,7 +85,10 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "PVL_fal_DepthAnythingV2_API": "PVL Depth Anything V2 (fal.ai)",
     "PVL_fal_Flux2CameraCtrl_API": "PVL Flux.2 Camera Control (fal.ai)",
+    "PVL_fal_Flux2Klein9BBaseLora_API": "PVL Flux.2 Klein 9B Base LoRA (fal.ai)",
+    "PVL_fal_Flux2Klein9BBaseLoraEditChain_API": "PVL Flux.2 Klein 9B Base LoRA -> Edit Chain (fal.ai)",
     "PVL_fal_Flux2Dev_API": "PVL Flux.2 Dev (fal.ai)",
+    "PVL_fal_Flux2Klein9BEdit_API": "PVL Flux.2 Klein 9B Edit (fal.ai)",
     "PVL_fal_Flux2Flex_API": "PVL Flux.2 Flex (fal.ai)",
     "PVL_fal_Flux2Pro_API": "PVL Flux.2 Pro (fal.ai)",
     "PVL_fal_FluxDev_API": "PVL FLUX DEV (fal.ai)",
