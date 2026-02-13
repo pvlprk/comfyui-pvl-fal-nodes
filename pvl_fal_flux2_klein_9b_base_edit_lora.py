@@ -5,13 +5,13 @@ import torch
 from .fal_utils import ApiHandler, ImageUtils, ResultProcessor
 
 
-class PVL_fal_Flux2Klein9BBaseEdit_API:
+class PVL_fal_Flux2Klein9BBaseEditLora_API:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "prompt": ("STRING", {"multiline": True}),
-                "num_inference_steps": ("INT", {"default": 28, "min": 1, "max": 50}),
+                "num_inference_steps": ("INT", {"default": 28, "min": 4, "max": 50}),
                 "num_images": ("INT", {"default": 1, "min": 1, "max": 4}),
                 "enable_safety_checker": ("BOOLEAN", {"default": True}),
                 "output_format": (["jpeg", "png", "webp"], {"default": "png"}),
@@ -43,6 +43,12 @@ class PVL_fal_Flux2Klein9BBaseEdit_API:
                 "negative_prompt": ("STRING", {"multiline": True, "default": ""}),
                 "guidance_scale": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 20.0, "step": 0.1}),
                 "acceleration": (["none", "regular", "high"], {"default": "regular"}),
+                "lora1_path": ("STRING", {"default": ""}),
+                "lora1_scale": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 2.0, "step": 0.1}),
+                "lora2_path": ("STRING", {"default": ""}),
+                "lora2_scale": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 2.0, "step": 0.1}),
+                "lora3_path": ("STRING", {"default": ""}),
+                "lora3_scale": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 2.0, "step": 0.1}),
                 "use_mstudio_proxy": ("BOOLEAN", {"default": False}),
                 "Proxy Only if >1K": ("BOOLEAN", {"default": False}),
             },
@@ -58,6 +64,24 @@ class PVL_fal_Flux2Klein9BBaseEdit_API:
                 return {"width": int(custom_width), "height": int(custom_height)}
             return None
         return image_size
+
+    def _build_loras(
+        self,
+        lora1_path="",
+        lora1_scale=1.0,
+        lora2_path="",
+        lora2_scale=1.0,
+        lora3_path="",
+        lora3_scale=1.0,
+    ):
+        loras = []
+        if isinstance(lora1_path, str) and lora1_path.strip():
+            loras.append({"path": lora1_path.strip(), "scale": float(lora1_scale)})
+        if isinstance(lora2_path, str) and lora2_path.strip():
+            loras.append({"path": lora2_path.strip(), "scale": float(lora2_scale)})
+        if isinstance(lora3_path, str) and lora3_path.strip():
+            loras.append({"path": lora3_path.strip(), "scale": float(lora3_scale)})
+        return loras[:3]
 
     def _collect_image_urls(
         self,
@@ -86,7 +110,7 @@ class PVL_fal_Flux2Klein9BBaseEdit_API:
                         )
                         if debug:
                             print(
-                                f"[Flux.2 Klein 9B Base Edit] encoded image_{idx + 1} frame {frame_idx + 1}"
+                                f"[Flux.2 Klein 9B Base Edit LoRA] encoded image_{idx + 1} frame {frame_idx + 1}"
                             )
                 else:
                     urls.append(
@@ -98,12 +122,12 @@ class PVL_fal_Flux2Klein9BBaseEdit_API:
                         )
                     )
                     if debug:
-                        print(f"[Flux.2 Klein 9B Base Edit] encoded image_{idx + 1}")
+                        print(f"[Flux.2 Klein 9B Base Edit LoRA] encoded image_{idx + 1}")
             except Exception as e:
-                print(f"[Flux.2 Klein 9B Base Edit] image_{idx + 1} encode error: {e}")
+                print(f"[Flux.2 Klein 9B Base Edit LoRA] image_{idx + 1} encode error: {e}")
 
         if debug:
-            print(f"[Flux.2 Klein 9B Base Edit] total encoded images: {len(urls)}")
+            print(f"[Flux.2 Klein 9B Base Edit LoRA] total encoded images: {len(urls)}")
         return urls[:4]
 
     def generate_image(
@@ -124,6 +148,12 @@ class PVL_fal_Flux2Klein9BBaseEdit_API:
         negative_prompt="",
         guidance_scale=5.0,
         acceleration="regular",
+        lora1_path="",
+        lora1_scale=1.0,
+        lora2_path="",
+        lora2_scale=1.0,
+        lora3_path="",
+        lora3_scale=1.0,
         use_mstudio_proxy=False,
         image_1=None,
         image_2=None,
@@ -137,7 +167,7 @@ class PVL_fal_Flux2Klein9BBaseEdit_API:
         def action(attempt, total_attempts):
             if debug_log:
                 print(
-                    f"[Flux.2 Klein 9B Base Edit] attempt {attempt}/{total_attempts} "
+                    f"[Flux.2 Klein 9B Base Edit LoRA] attempt {attempt}/{total_attempts} "
                     f"num_images={num_images} sync_mode={sync_mode}"
                 )
 
@@ -152,9 +182,9 @@ class PVL_fal_Flux2Klein9BBaseEdit_API:
                 debug=debug_log,
             )
             if not image_urls:
-                raise RuntimeError("No valid input images provided for Flux.2 Klein 9B Base Edit.")
+                raise RuntimeError("No valid input images provided for Flux.2 Klein 9B Base Edit LoRA.")
 
-            model_id = "fal-ai/flux-2/klein/9b/base/edit"
+            model_id = "fal-ai/flux-2/klein/9b/base/edit/lora"
 
             arguments = {
                 "prompt": prompt,
@@ -177,10 +207,21 @@ class PVL_fal_Flux2Klein9BBaseEdit_API:
             if int(seed) != -1:
                 arguments["seed"] = int(seed) & 0xFFFFFFFF
 
+            loras = self._build_loras(
+                lora1_path=lora1_path,
+                lora1_scale=lora1_scale,
+                lora2_path=lora2_path,
+                lora2_scale=lora2_scale,
+                lora3_path=lora3_path,
+                lora3_scale=lora3_scale,
+            )
+            if loras:
+                arguments["loras"] = loras
+
             if debug_log:
                 print(
-                    f"[Flux.2 Klein 9B Base Edit] model_id={model_id} payload keys={list(arguments.keys())} "
-                    f"image_urls={len(image_urls)}"
+                    f"[Flux.2 Klein 9B Base Edit LoRA] model_id={model_id} payload keys={list(arguments.keys())} "
+                    f"image_urls={len(image_urls)} loras={len(loras)}"
                 )
 
             if hasattr(ApiHandler, "submit_only") and hasattr(ApiHandler, "poll_and_get_result"):
@@ -200,10 +241,15 @@ class PVL_fal_Flux2Klein9BBaseEdit_API:
                 action,
                 retries=retries,
                 on_retry=lambda attempt, total_attempts, e: print(
-                    f"[Flux.2 Klein 9B Base Edit ERROR] attempt {attempt}/{total_attempts} -> {e}"
+                    f"[Flux.2 Klein 9B Base Edit LoRA ERROR] attempt {attempt}/{total_attempts} -> {e}"
                 ),
             )
             return (img_tensor,)
         except Exception as e:
-            print(f"Error generating image with Flux.2 Klein 9B Base Edit: {str(e)}")
-            return ApiHandler.handle_image_generation_error("Flux.2 Klein 9B Base Edit", e, width=width, height=height)
+            print(f"Error generating image with Flux.2 Klein 9B Base Edit LoRA: {str(e)}")
+            return ApiHandler.handle_image_generation_error(
+                "Flux.2 Klein 9B Base Edit LoRA",
+                e,
+                width=width,
+                height=height,
+            )

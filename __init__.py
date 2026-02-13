@@ -1,11 +1,12 @@
 from .pvl_fal_depth_anything_v2 import PVL_fal_DepthAnythingV2_API
 from .pvl_fal_flux2_camera_ctrl import PVL_fal_Flux2CameraCtrl_API
 from .pvl_fal_flux2_klein_9b_base_lora import PVL_fal_Flux2Klein9BBaseLora_API
+from .pvl_fal_flux2_klein_9b_base_edit_lora import PVL_fal_Flux2Klein9BBaseEditLora_API
 from .pvl_fal_flux2_klein_9b_base_lora_edit_chain import (
-    PVL_fal_Flux2Klein9BBaseLoraEditChain_API,
+    PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API,
 )
 from .pvl_fal_flux2_dev import PVL_fal_Flux2Dev_API
-from .pvl_fal_flux2_klein_9b_edit import PVL_fal_Flux2Klein9BEdit_API
+from .pvl_fal_flux2_klein_9b_edit import PVL_fal_Flux2Klein9BBaseEdit_API
 from .pvl_fal_flux2_flex import PVL_fal_Flux2Flex_API
 from .pvl_fal_flux2_pro import PVL_fal_Flux2Pro_API
 from .pvl_fal_flux_dev import PVL_fal_FluxDev_API
@@ -28,8 +29,15 @@ from .pvl_fal_ministudio_avatar import PVL_fal_FluxDevPulidAvatar_API
 from .pvl_fal_moondream3_segment import PVL_fal_Moondream3Segment_API
 from .pvl_fal_nano_banana_edit import PVL_fal_NanoBanana_API
 from .pvl_fal_qwen_image_edit_2511 import PVL_fal_QwenImageEdit2511_API
+from .pvl_fal_qwen_image_edit_2511_lora import PVL_fal_QwenImageEdit2511Lora_API
 from .pvl_fal_qwen_image_edit_2511_multiple_angles import (
     PVL_fal_QwenImageEdit2511MultipleAngles_API,
+)
+from .pvl_fal_qwen_dual_lora import PVL_fal_QwenDualLora_API
+from .pvl_fal_qwen_base_lora_edit_chain import PVL_fal_QwenBaseLoraEditChain_API
+from .pvl_fal_qwen_base_lora_qwen_edit_chain import PVL_fal_QwenBaseLoraQwenEditChain_API
+from .pvl_fal_qwen_base_lora_qwen_edit_lora_chain import (
+    PVL_fal_QwenBaseLoraQwenEditLoraChain_API,
 )
 from .pvl_fal_qwen_img_edit_inpaint import PVL_fal_Qwen_Img_Edit_Inpaint
 from .pvl_fal_qwen_txt2img import PVL_fal_QwenImage_API
@@ -45,9 +53,10 @@ NODE_CLASS_MAPPINGS = {
     "PVL_fal_DepthAnythingV2_API": PVL_fal_DepthAnythingV2_API,
     "PVL_fal_Flux2CameraCtrl_API": PVL_fal_Flux2CameraCtrl_API,
     "PVL_fal_Flux2Klein9BBaseLora_API": PVL_fal_Flux2Klein9BBaseLora_API,
-    "PVL_fal_Flux2Klein9BBaseLoraEditChain_API": PVL_fal_Flux2Klein9BBaseLoraEditChain_API,
+    "PVL_fal_Flux2Klein9BBaseEditLora_API": PVL_fal_Flux2Klein9BBaseEditLora_API,
+    "PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API": PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API,
     "PVL_fal_Flux2Dev_API": PVL_fal_Flux2Dev_API,
-    "PVL_fal_Flux2Klein9BEdit_API": PVL_fal_Flux2Klein9BEdit_API,
+    "PVL_fal_Flux2Klein9BBaseEdit_API": PVL_fal_Flux2Klein9BBaseEdit_API,
     "PVL_fal_Flux2Flex_API": PVL_fal_Flux2Flex_API,
     "PVL_fal_Flux2Pro_API": PVL_fal_Flux2Pro_API,
     "PVL_fal_FluxDev_API": PVL_fal_FluxDev_API,
@@ -70,7 +79,12 @@ NODE_CLASS_MAPPINGS = {
     "PVL_fal_Moondream3Segment_API": PVL_fal_Moondream3Segment_API,
     "PVL_fal_NanoBanana_API": PVL_fal_NanoBanana_API,
     "PVL_fal_QwenImageEdit2511_API": PVL_fal_QwenImageEdit2511_API,
+    "PVL_fal_QwenImageEdit2511Lora_API": PVL_fal_QwenImageEdit2511Lora_API,
     "PVL_fal_QwenImageEdit2511MultipleAngles_API": PVL_fal_QwenImageEdit2511MultipleAngles_API,
+    "PVL_fal_QwenDualLora_API": PVL_fal_QwenDualLora_API,
+    "PVL_fal_QwenBaseLoraEditChain_API": PVL_fal_QwenBaseLoraEditChain_API,
+    "PVL_fal_QwenBaseLoraQwenEditChain_API": PVL_fal_QwenBaseLoraQwenEditChain_API,
+    "PVL_fal_QwenBaseLoraQwenEditLoraChain_API": PVL_fal_QwenBaseLoraQwenEditLoraChain_API,
     "PVL_fal_Qwen_Img_Edit_Inpaint": PVL_fal_Qwen_Img_Edit_Inpaint,
     "PVL_fal_QwenImage_API": PVL_fal_QwenImage_API,
     "PVL_fal_RemoveBackground_API": PVL_fal_RemoveBackground_API,
@@ -86,9 +100,10 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PVL_fal_DepthAnythingV2_API": "PVL Depth Anything V2 (fal.ai)",
     "PVL_fal_Flux2CameraCtrl_API": "PVL Flux.2 Camera Control (fal.ai)",
     "PVL_fal_Flux2Klein9BBaseLora_API": "PVL Flux.2 Klein 9B Base LoRA (fal.ai)",
-    "PVL_fal_Flux2Klein9BBaseLoraEditChain_API": "PVL Flux.2 Klein 9B Base LoRA -> Edit Chain (fal.ai)",
+    "PVL_fal_Flux2Klein9BBaseEditLora_API": "PVL Flux.2 Klein 9B Base Edit LoRA (fal.ai)",
+    "PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API": "PVL Flux.2 Klein 9B Base LoRA -> Base Edit Chain (fal.ai)",
     "PVL_fal_Flux2Dev_API": "PVL Flux.2 Dev (fal.ai)",
-    "PVL_fal_Flux2Klein9BEdit_API": "PVL Flux.2 Klein 9B Edit (fal.ai)",
+    "PVL_fal_Flux2Klein9BBaseEdit_API": "PVL Flux.2 Klein 9B Base Edit (fal.ai)",
     "PVL_fal_Flux2Flex_API": "PVL Flux.2 Flex (fal.ai)",
     "PVL_fal_Flux2Pro_API": "PVL Flux.2 Pro (fal.ai)",
     "PVL_fal_FluxDev_API": "PVL FLUX DEV (fal.ai)",
@@ -111,8 +126,15 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PVL_fal_Moondream3Segment_API": "PVL Moondream3 Segmentation (fal.ai)",
     "PVL_fal_NanoBanana_API": "PVL FAL Nano-Banana Edit",
     "PVL_fal_QwenImageEdit2511_API": "PVL Qwen Image Edit 2511 (fal.ai)",
+    "PVL_fal_QwenImageEdit2511Lora_API": "PVL Qwen Image Edit 2511 LoRA (fal.ai)",
     "PVL_fal_QwenImageEdit2511MultipleAngles_API": (
         "PVL Qwen Image Edit 2511 Multiple Angles (fal.ai)"
+    ),
+    "PVL_fal_QwenDualLora_API": "PVL Qwen Dual LoRA (fal.ai)",
+    "PVL_fal_QwenBaseLoraEditChain_API": "PVL Qwen Base LoRA -> Flux Edit Chain (fal.ai)",
+    "PVL_fal_QwenBaseLoraQwenEditChain_API": "PVL Qwen Base LoRA -> Qwen Edit 2511 Chain (fal.ai)",
+    "PVL_fal_QwenBaseLoraQwenEditLoraChain_API": (
+        "PVL Qwen Base LoRA -> Qwen Edit 2511 LoRA Chain (fal.ai)"
     ),
     "PVL_fal_Qwen_Img_Edit_Inpaint": "PVL Qwen Image Edit Inpaint (fal.ai)",
     "PVL_fal_QwenImage_API": "PVL QwenImage txt2img (fal.ai)",

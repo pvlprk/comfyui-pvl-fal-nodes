@@ -7,22 +7,27 @@ import torch
 from .fal_utils import ApiHandler, ImageUtils, ResultProcessor
 
 
-class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
+class PVL_fal_QwenBaseLoraEditChain_API:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "qwen_model": (
+                    ["fal-ai/qwen-image", "fal-ai/qwen-image-2512/lora"],
+                    {"default": "fal-ai/qwen-image"},
+                ),
                 "prompt_base": ("STRING", {"multiline": True}),
                 "prompt_edit": ("STRING", {"multiline": True}),
                 "num_images": ("INT", {"default": 1, "min": 1, "max": 4}),
                 "retries": ("INT", {"default": 2, "min": 0, "max": 10}),
                 "timeout_sec": ("INT", {"default": 120, "min": 5, "max": 600, "step": 5}),
                 "debug_log": ("BOOLEAN", {"default": False}),
-                "base_num_inference_steps": ("INT", {"default": 28, "min": 4, "max": 50}),
-                "base_guidance_scale": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 20.0, "step": 0.1}),
+                "output_stage1": ("BOOLEAN", {"default": False}),
+                "base_num_inference_steps": ("INT", {"default": 28, "min": 1, "max": 50}),
+                "base_guidance_scale": ("FLOAT", {"default": 4.0, "min": 0.0, "max": 20.0, "step": 0.1}),
                 "base_acceleration": (["none", "regular", "high"], {"default": "regular"}),
                 "base_enable_safety_checker": ("BOOLEAN", {"default": True}),
-                "base_output_format": (["jpeg", "png", "webp"], {"default": "png"}),
+                "base_output_format": (["jpeg", "png"], {"default": "png"}),
                 "edit_num_inference_steps": ("INT", {"default": 4, "min": 4, "max": 8}),
                 "edit_enable_safety_checker": ("BOOLEAN", {"default": True}),
                 "edit_output_format": (["jpeg", "png", "webp"], {"default": "png"}),
@@ -44,8 +49,8 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
                 ),
                 "base_custom_width": ("INT", {"default": 0, "min": 0, "max": 2048, "step": 64}),
                 "base_custom_height": ("INT", {"default": 0, "min": 0, "max": 2048, "step": 64}),
-                "base_seed": ("INT", {"default": -1, "min": -1, "max": 0xFFFFFFFFFFFFFFFF}),
-                "edit_seed": ("INT", {"default": -1, "min": -1, "max": 0xFFFFFFFFFFFFFFFF}),
+                "seed": ("INT", {"default": -1, "min": -1, "max": 0xFFFFFFFFFFFFFFFF}),
+                "image": ("IMAGE",),
                 "lora1_path": ("STRING", {"default": ""}),
                 "lora1_scale": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 2.0, "step": 0.1}),
                 "lora2_path": ("STRING", {"default": ""}),
@@ -55,7 +60,8 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
             },
         }
 
-    RETURN_TYPES = ("IMAGE",)
+    RETURN_TYPES = ("IMAGE", "IMAGE")
+    RETURN_NAMES = ("image_stage1", "image_final")
     FUNCTION = "generate_image"
     CATEGORY = "PVL_tools_FAL"
 
@@ -117,14 +123,14 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
         else:
             if debug:
                 print(
-                    f"[Flux.2 Klein Chain] base prompts={len(base_prompts)} num_images={n}; "
+                    f"[Qwen Chain] base prompts={len(base_prompts)} num_images={n}; "
                     "reusing last base prompt."
                 )
             call_prompts = base_prompts + [base_prompts[-1]] * (n - len(base_prompts))
         if debug:
             for i, p in enumerate(call_prompts):
                 show = p if len(p) <= 140 else (p[:137] + "...")
-                print(f"[Flux.2 Klein Chain] item={i} base_prompt={show}")
+                print(f"[Qwen Chain] item={i} base_prompt={show}")
         return call_prompts
 
     def _submit_and_poll(self, model_id, arguments, timeout_sec=120, debug=False):
@@ -150,6 +156,7 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
     def _run_stage1_with_retries(
         self,
         item_index,
+        qwen_model,
         prompt_text,
         base_num_inference_steps,
         base_guidance_scale,
@@ -160,19 +167,20 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
         base_image_size,
         base_custom_width,
         base_custom_height,
-        base_seed,
+        seed,
         loras,
+        output_stage1,
         retries,
         timeout_sec,
         debug_log,
     ):
-        seed_for_item = base_seed if int(base_seed) == -1 else ((int(base_seed) + item_index) % 4294967296)
+        seed_for_item = seed if int(seed) == -1 else ((int(seed) + item_index) % 4294967296)
 
         def action(attempt, total_attempts):
             if debug_log:
                 print(
-                    f"[Flux.2 Klein Chain][Stage1] item={item_index} attempt={attempt}/{total_attempts} "
-                    f"seed={seed_for_item if int(base_seed) != -1 else 'auto'}"
+                    f"[Qwen Chain][Stage1] item={item_index} attempt={attempt}/{total_attempts} "
+                    f"seed={seed_for_item if int(seed) != -1 else 'auto'}"
                 )
             arguments = {
                 "prompt": prompt_text,
@@ -189,29 +197,35 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
                 arguments["image_size"] = size_payload
             if isinstance(base_negative_prompt, str) and base_negative_prompt.strip():
                 arguments["negative_prompt"] = base_negative_prompt
-            if int(base_seed) != -1:
+            if int(seed) != -1:
                 arguments["seed"] = int(seed_for_item) & 0xFFFFFFFF
             if loras:
                 arguments["loras"] = loras
             if debug_log:
                 print(
-                    f"[Flux.2 Klein Chain][Stage1] item={item_index} "
+                    f"[Qwen Chain][Stage1] item={item_index} model={qwen_model} "
                     f"payload_keys={list(arguments.keys())} loras={len(loras)}"
                 )
             result = self._submit_and_poll(
-                "fal-ai/flux-2/klein/9b/base/lora",
+                qwen_model,
                 arguments,
                 timeout_sec=timeout_sec,
                 debug=debug_log,
             )
             image_url = self._extract_first_image_url(result)
+            stage1_tensor = None
+            if bool(output_stage1):
+                out = ResultProcessor.process_image_result(result)
+                stage1_tensor = out[0] if isinstance(out, tuple) else out
+                if torch.is_tensor(stage1_tensor) and stage1_tensor.ndim == 3:
+                    stage1_tensor = stage1_tensor.unsqueeze(0)
             if debug_log:
-                print(f"[Flux.2 Klein Chain][Stage1] item={item_index} got image URL.")
-            return image_url
+                print(f"[Qwen Chain][Stage1] item={item_index} got image URL.")
+            return image_url, stage1_tensor
 
         def on_retry(attempt, total_attempts, error):
             print(
-                f"[Flux.2 Klein Chain][Stage1 ERROR] item={item_index} "
+                f"[Qwen Chain][Stage1 ERROR] item={item_index} "
                 f"attempt={attempt}/{total_attempts} -> {error}"
             )
 
@@ -222,9 +236,11 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
                 is_fatal=lambda e: self._is_content_policy_violation(str(e)),
                 on_retry=on_retry,
             )
-            return True, stage1_url, ""
+            if isinstance(stage1_url, tuple) and len(stage1_url) == 2:
+                return True, stage1_url[0], stage1_url[1], ""
+            return True, stage1_url, None, ""
         except Exception as e:
-            return False, None, str(e)
+            return False, None, None, str(e)
 
     def _run_stage2_with_retries(
         self,
@@ -234,18 +250,19 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
         edit_num_inference_steps,
         edit_enable_safety_checker,
         edit_output_format,
-        edit_seed,
+        image,
+        seed,
         retries,
         timeout_sec,
         debug_log,
     ):
-        seed_for_item = edit_seed if int(edit_seed) == -1 else ((int(edit_seed) + item_index) % 4294967296)
+        seed_for_item = seed if int(seed) == -1 else ((int(seed) + item_index) % 4294967296)
 
         def action(attempt, total_attempts):
             if debug_log:
                 print(
-                    f"[Flux.2 Klein Chain][Stage2] item={item_index} attempt={attempt}/{total_attempts} "
-                    f"seed={seed_for_item if int(edit_seed) != -1 else 'auto'}"
+                    f"[Qwen Chain][Stage2] item={item_index} attempt={attempt}/{total_attempts} "
+                    f"seed={seed_for_item if int(seed) != -1 else 'auto'}"
                 )
             arguments = {
                 "prompt": prompt_edit,
@@ -256,11 +273,20 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
                 "output_format": edit_output_format,
                 "sync_mode": False,
             }
-            if int(edit_seed) != -1:
+            if image is not None and torch.is_tensor(image):
+                image_tensor = image[0] if image.ndim == 4 else image
+                second_url = ImageUtils.image_to_payload_uri(
+                    image_tensor,
+                    use_mstudio_proxy=False,
+                    proxy_only_if_gt_1k=False,
+                    timeout_sec=int(timeout_sec),
+                )
+                arguments["image_urls"].append(second_url)
+            if int(seed) != -1:
                 arguments["seed"] = int(seed_for_item) & 0xFFFFFFFF
             if debug_log:
                 print(
-                    f"[Flux.2 Klein Chain][Stage2] item={item_index} "
+                    f"[Qwen Chain][Stage2] item={item_index} "
                     f"payload_keys={list(arguments.keys())}"
                 )
             result = self._submit_and_poll(
@@ -277,7 +303,7 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
 
         def on_retry(attempt, total_attempts, error):
             print(
-                f"[Flux.2 Klein Chain][Stage2 ERROR] item={item_index} "
+                f"[Qwen Chain][Stage2 ERROR] item={item_index} "
                 f"attempt={attempt}/{total_attempts} -> {error}"
             )
 
@@ -295,6 +321,7 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
     def _run_one_chain_with_retries(
         self,
         item_index,
+        qwen_model,
         prompt_base,
         prompt_edit,
         base_num_inference_steps,
@@ -306,18 +333,20 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
         base_image_size,
         base_custom_width,
         base_custom_height,
-        base_seed,
+        seed,
         edit_num_inference_steps,
         edit_enable_safety_checker,
         edit_output_format,
-        edit_seed,
+        image,
         loras,
+        output_stage1,
         retries,
         timeout_sec,
         debug_log,
     ):
-        ok1, stage1_url, err1 = self._run_stage1_with_retries(
+        ok1, stage1_url, stage1_tensor, err1 = self._run_stage1_with_retries(
             item_index=item_index,
+            qwen_model=qwen_model,
             prompt_text=prompt_base,
             base_num_inference_steps=base_num_inference_steps,
             base_guidance_scale=base_guidance_scale,
@@ -328,14 +357,15 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
             base_image_size=base_image_size,
             base_custom_width=base_custom_width,
             base_custom_height=base_custom_height,
-            base_seed=base_seed,
+            seed=seed,
             loras=loras,
+            output_stage1=output_stage1,
             retries=retries,
             timeout_sec=timeout_sec,
             debug_log=debug_log,
         )
         if not ok1:
-            return False, None, f"Stage1 failed: {err1}"
+            return False, None, None, f"Stage1 failed: {err1}"
 
         ok2, img_tensor, err2 = self._run_stage2_with_retries(
             item_index=item_index,
@@ -344,23 +374,26 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
             edit_num_inference_steps=edit_num_inference_steps,
             edit_enable_safety_checker=edit_enable_safety_checker,
             edit_output_format=edit_output_format,
-            edit_seed=edit_seed,
+            image=image,
+            seed=seed,
             retries=retries,
             timeout_sec=timeout_sec,
             debug_log=debug_log,
         )
         if not ok2:
-            return False, None, f"Stage2 failed: {err2}"
-        return True, img_tensor, ""
+            return False, None, None, f"Stage2 failed: {err2}"
+        return True, stage1_tensor, img_tensor, ""
 
     def generate_image(
         self,
+        qwen_model,
         prompt_base,
         prompt_edit,
         num_images,
         retries,
         timeout_sec,
         debug_log,
+        output_stage1,
         base_num_inference_steps,
         base_guidance_scale,
         base_acceleration,
@@ -374,14 +407,14 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
         base_image_size="landscape_4_3",
         base_custom_width=0,
         base_custom_height=0,
-        base_seed=-1,
-        edit_seed=-1,
+        seed=-1,
         lora1_path="",
         lora1_scale=1.0,
         lora2_path="",
         lora2_scale=1.0,
         lora3_path="",
         lora3_scale=1.0,
+        image=None,
         **kwargs,
     ):
         t0 = time.time()
@@ -392,7 +425,7 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
             try:
                 base_prompts = [p.strip() for p in re.split(delimiter, prompt_base) if str(p).strip()]
             except re.error:
-                print(f"[Flux.2 Klein Chain WARNING] Invalid regex delimiter '{delimiter}', using literal split.")
+                print(f"[Qwen Chain WARNING] Invalid regex delimiter '{delimiter}', using literal split.")
                 base_prompts = [p.strip() for p in str(prompt_base).split(delimiter) if str(p).strip()]
             if not base_prompts:
                 raise RuntimeError("No valid base prompts provided.")
@@ -409,13 +442,14 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
             )
 
             print(
-                f"[Flux.2 Klein Chain INFO] Processing {n} pair(s) "
+                f"[Qwen Chain INFO] Processing {n} pair(s) "
                 f"with retries={retries}, timeout={timeout_sec}s"
             )
 
             if n == 1:
-                ok, img_tensor, last_err = self._run_one_chain_with_retries(
+                ok, stage1_tensor, img_tensor, last_err = self._run_one_chain_with_retries(
                     item_index=0,
+                    qwen_model=qwen_model,
                     prompt_base=call_prompts[0],
                     prompt_edit=prompt_edit,
                     base_num_inference_steps=base_num_inference_steps,
@@ -427,29 +461,36 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
                     base_image_size=base_image_size,
                     base_custom_width=base_custom_width,
                     base_custom_height=base_custom_height,
-                    base_seed=base_seed,
+                    seed=seed,
                     edit_num_inference_steps=edit_num_inference_steps,
                     edit_enable_safety_checker=edit_enable_safety_checker,
                     edit_output_format=edit_output_format,
-                    edit_seed=edit_seed,
+                    image=image,
                     loras=loras,
+                    output_stage1=output_stage1,
                     retries=retries,
                     timeout_sec=timeout_sec,
                     debug_log=debug_log,
                 )
                 if ok and torch.is_tensor(img_tensor):
-                    print(f"[Flux.2 Klein Chain INFO] Successfully generated 1 image in {time.time() - t0:.2f}s")
-                    return (img_tensor,)
+                    print(f"[Qwen Chain INFO] Successfully generated 1 image in {time.time() - t0:.2f}s")
+                    if bool(output_stage1) and torch.is_tensor(stage1_tensor):
+                        stage1_out = stage1_tensor if torch.is_tensor(stage1_tensor) else torch.zeros_like(img_tensor)
+                    else:
+                        stage1_out = torch.zeros_like(img_tensor)
+                    return (stage1_out, img_tensor)
                 raise RuntimeError(last_err or "All attempts failed for single chained request")
 
-            print(f"[Flux.2 Klein Chain INFO] Running {n} chained pairs in parallel...")
+            print(f"[Qwen Chain INFO] Running {n} chained pairs in parallel...")
             results_map = {}
+            stage1_map = {}
             errors_map = {}
             max_workers = min(n, 6)
 
             def worker(i):
                 return i, *self._run_one_chain_with_retries(
                     item_index=i,
+                    qwen_model=qwen_model,
                     prompt_base=call_prompts[i],
                     prompt_edit=prompt_edit,
                     base_num_inference_steps=base_num_inference_steps,
@@ -461,12 +502,13 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
                     base_image_size=base_image_size,
                     base_custom_width=base_custom_width,
                     base_custom_height=base_custom_height,
-                    base_seed=base_seed,
+                    seed=seed,
                     edit_num_inference_steps=edit_num_inference_steps,
                     edit_enable_safety_checker=edit_enable_safety_checker,
                     edit_output_format=edit_output_format,
-                    edit_seed=edit_seed,
+                    image=image,
                     loras=loras,
+                    output_stage1=output_stage1,
                     retries=retries,
                     timeout_sec=timeout_sec,
                     debug_log=debug_log,
@@ -475,8 +517,10 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = [executor.submit(worker, i) for i in range(n)]
                 for fut in as_completed(futures):
-                    i, ok, img_tensor, last_err = fut.result()
+                    i, ok, stage1_tensor, img_tensor, last_err = fut.result()
                     if ok and torch.is_tensor(img_tensor):
+                        if bool(output_stage1) and torch.is_tensor(stage1_tensor):
+                            stage1_map[i] = stage1_tensor
                         results_map[i] = img_tensor
                     else:
                         errors_map[i] = last_err or "Unknown error"
@@ -505,7 +549,7 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
                 final_tensor = torch.cat(fixed, dim=0)
 
             print(
-                f"[Flux.2 Klein Chain INFO] Successfully generated {final_tensor.shape[0]}/{n} "
+                f"[Qwen Chain INFO] Successfully generated {final_tensor.shape[0]}/{n} "
                 f"images in {time.time() - t0:.2f}s"
             )
 
@@ -513,27 +557,52 @@ class PVL_fal_Flux2Klein9BBaseLoraBaseEditChain_API:
             if failed_idxs:
                 for i in failed_idxs:
                     print(
-                        f"[Flux.2 Klein Chain ERROR] Item {i + 1} failed after {int(retries) + 1} attempt(s): "
+                        f"[Qwen Chain ERROR] Item {i + 1} failed after {int(retries) + 1} attempt(s): "
                         f"{errors_map.get(i, 'Unknown error')}"
                     )
                 print(
-                    f"[Flux.2 Klein Chain WARNING] Returning only {final_tensor.shape[0]}/{n} successful results."
+                    f"[Qwen Chain WARNING] Returning only {final_tensor.shape[0]}/{n} successful results."
                 )
 
-            if int(base_seed) != -1:
-                base_seed_list = [(int(base_seed) + i) % 4294967296 for i in range(n)]
-                print(f"[Flux.2 Klein Chain INFO] Base seeds used: {base_seed_list}")
-            if int(edit_seed) != -1:
-                edit_seed_list = [(int(edit_seed) + i) % 4294967296 for i in range(n)]
-                print(f"[Flux.2 Klein Chain INFO] Edit seeds used: {edit_seed_list}")
+            if int(seed) != -1:
+                seed_list = [(int(seed) + i) % 4294967296 for i in range(n)]
+                print(f"[Qwen Chain INFO] Seeds used: {seed_list}")
 
-            return (final_tensor,)
+            if bool(output_stage1):
+                stage1_images = [
+                    stage1_map[i]
+                    for i in sorted(stage1_map.keys())
+                    if torch.is_tensor(stage1_map[i])
+                ]
+                if stage1_images and len(stage1_images) == final_tensor.shape[0]:
+                    try:
+                        stage1_out = torch.cat(stage1_images, dim=0)
+                    except RuntimeError:
+                        first = stage1_images[0]
+                        h, w = int(first.shape[1]), int(first.shape[2])
+                        fixed = []
+                        for t in stage1_images:
+                            if t.shape[1] == h and t.shape[2] == w:
+                                fixed.append(t)
+                            else:
+                                pil = ImageUtils.tensor_to_pil(t)
+                                resized = pil.resize((w, h))
+                                fixed.append(ImageUtils.pil_to_tensor(resized))
+                        stage1_out = torch.cat(fixed, dim=0)
+                else:
+                    stage1_out = torch.zeros_like(final_tensor)
+            else:
+                stage1_out = torch.zeros_like(final_tensor)
+
+            return (stage1_out, final_tensor)
 
         except Exception as e:
-            print(f"Error generating image with Flux.2 Klein Chain: {str(e)}")
-            return ApiHandler.handle_image_generation_error(
-                "Flux.2 Klein Chain",
+            print(f"Error generating image with Qwen Chain: {str(e)}")
+            fallback = ApiHandler.handle_image_generation_error(
+                "Qwen Base LoRA -> Flux Edit Chain",
                 e,
                 width=width,
                 height=height,
             )
+            fallback_img = fallback[0] if isinstance(fallback, tuple) else fallback
+            return (fallback_img, fallback_img)

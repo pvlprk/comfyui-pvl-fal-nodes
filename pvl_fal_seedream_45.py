@@ -14,6 +14,7 @@ class PVL_fal_Seedream45_API:
     - If any image input is connected -> use edit endpoint:
         "fal-ai/bytedance/seedream/v4.5/edit"
       and send images as Base64 data URIs via image_urls.
+      Batch inputs are expanded frame-by-frame across all image slots.
 
     - If no image is connected -> use text-to-image endpoint:
         "fal-ai/bytedance/seedream/v4.5/text-to-image"
@@ -50,8 +51,8 @@ class PVL_fal_Seedream45_API:
                 # We don't hard-enforce, but we hint via min/max.
                 "width": ("INT", {"default": 2048, "min": 512, "max": 4096}),
                 "height": ("INT", {"default": 2048, "min": 512, "max": 4096}),
-                "num_images": ("INT", {"default": 1, "min": 1, "max": 8}),
-                "max_images": ("INT", {"default": 1, "min": 1, "max": 8}),
+                "num_images": ("INT", {"default": 1, "min": 1, "max": 6}),
+                "max_images": ("INT", {"default": 1, "min": 1, "max": 6}),
                 "seed": ("INT", {"default": -1, "min": -1, "max": 4294967295}),
                 "enable_safety_checker": ("BOOLEAN", {"default": False}),
                 "sync_mode": ("BOOLEAN", {"default": False}),
@@ -61,7 +62,7 @@ class PVL_fal_Seedream45_API:
                 "debug_log": ("BOOLEAN", {"default": False}),
             },
             "optional": {
-                # Up to 8 optional image inputs (for edit endpoint).
+                # Up to 10 optional image inputs (for edit endpoint).
                 # We will send them as Base64 data URIs in image_urls.
                 "image_1": ("IMAGE",),
                 "image_2": ("IMAGE",),
@@ -71,6 +72,8 @@ class PVL_fal_Seedream45_API:
                 "image_6": ("IMAGE",),
                 "image_7": ("IMAGE",),
                 "image_8": ("IMAGE",),
+                "image_9": ("IMAGE",),
+                "image_10": ("IMAGE",),
                 "use_mstudio_proxy": ("BOOLEAN", {"default": False}),
                 "Proxy Only if >1K": ("BOOLEAN", {"default": False}),
             },
@@ -157,22 +160,45 @@ class PVL_fal_Seedream45_API:
             if not isinstance(img, torch.Tensor):
                 continue
             try:
-                data_uri = ImageUtils.image_to_payload_uri(
-                    img,
-                    use_mstudio_proxy=use_mstudio_proxy,
-                    proxy_only_if_gt_1k=proxy_only_if_gt_1k,
-                    timeout_sec=timeout_sec,
-                )
-                urls.append(data_uri)
-                if debug:
-                    print(f"[SeeDream 4.5] found image input at slot {idx + 1}")
+                tensor = img.detach()
+                if tensor.ndim == 4:
+                    frames = [tensor[i] for i in range(tensor.shape[0])]
+                elif tensor.ndim in (2, 3):
+                    frames = [tensor]
+                else:
+                    if debug:
+                        print(
+                            f"[SeeDream 4.5] skipping image_{idx + 1} with unsupported "
+                            f"shape={tuple(tensor.shape)}"
+                        )
+                    continue
+
+                for frame_idx, frame in enumerate(frames):
+                    data_uri = ImageUtils.image_to_payload_uri(
+                        frame,
+                        use_mstudio_proxy=use_mstudio_proxy,
+                        proxy_only_if_gt_1k=proxy_only_if_gt_1k,
+                        timeout_sec=timeout_sec,
+                    )
+                    urls.append(data_uri)
+                    if debug:
+                        print(
+                            f"[SeeDream 4.5] encoded image_{idx + 1}"
+                            + (f" frame {frame_idx + 1}" if len(frames) > 1 else "")
+                        )
             except Exception as e:
                 print(f"[SeeDream 4.5] IMAGE ENCODE ERROR image_{idx + 1}: {e}")
+
+        if len(urls) > 10:
+            print(
+                f"[SeeDream 4.5 WARNING] Received {len(urls)} input images. "
+                "Keeping the last 10 to match endpoint behavior."
+            )
+            urls = urls[-10:]
 
         if debug:
             print(f"[SeeDream 4.5] total encoded images for request: {len(urls)}")
 
-        # SeeDream allows up to 10 image inputs; node provides 8, so no truncation needed.
         return urls
 
     def _select_endpoint(self, has_image: bool) -> str:
@@ -258,6 +284,8 @@ class PVL_fal_Seedream45_API:
         image_6=None,
         image_7=None,
         image_8=None,
+        image_9=None,
+        image_10=None,
         use_mstudio_proxy=False,
         **kwargs,
     ):
@@ -279,6 +307,8 @@ class PVL_fal_Seedream45_API:
                 image_6,
                 image_7,
                 image_8,
+                image_9,
+                image_10,
             ]
             has_image_input = any(img is not None for img in images)
             image_urls = (
@@ -304,6 +334,16 @@ class PVL_fal_Seedream45_API:
                     "SeeDream edit endpoint selected but no valid image data URIs were produced "
                     "from the inputs."
                 )
+
+            if "edit" in endpoint:
+                requested_output_upper_bound = int(num_images) * int(max_images)
+                total_budget = len(image_urls) + requested_output_upper_bound
+                if total_budget > 15:
+                    raise RuntimeError(
+                        "SeeDream v4.5 edit limit exceeded: input_images + (num_images * max_images) "
+                        f"must be <= 15, got {len(image_urls)} + {requested_output_upper_bound} = {total_budget}. "
+                        "Reduce input image count, num_images, or max_images."
+                    )
 
             # Build image_size payload
             img_size_payload = self._build_image_size_payload(
