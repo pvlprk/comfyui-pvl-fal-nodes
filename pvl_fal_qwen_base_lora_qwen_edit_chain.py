@@ -8,8 +8,43 @@ class PVL_fal_QwenBaseLoraQwenEditChain_API(PVL_fal_QwenBaseLoraEditChain_API):
     @classmethod
     def INPUT_TYPES(cls):
         base = super().INPUT_TYPES()
+        base["required"]["edit_num_inference_steps"] = (
+            "INT",
+            {"default": 28, "min": 1, "max": 50},
+        )
+        base["required"]["edit_guidance_scale"] = (
+            "FLOAT",
+            {"default": 4.5, "min": 1.0, "max": 20.0, "step": 0.1},
+        )
+        base["required"]["edit_acceleration"] = (
+            ["none", "regular", "high"],
+            {"default": "regular"},
+        )
         base["optional"]["edit_negative_prompt"] = ("STRING", {"multiline": True, "default": ""})
+        base["optional"]["edit_image_size"] = (
+            [
+                "square_hd",
+                "square",
+                "portrait_4_3",
+                "portrait_16_9",
+                "landscape_4_3",
+                "landscape_16_9",
+                "custom",
+            ],
+            {"default": "custom"},
+        )
+        base["optional"]["edit_custom_width"] = ("INT", {"default": 0, "min": 0, "max": 2048, "step": 64})
+        base["optional"]["edit_custom_height"] = ("INT", {"default": 0, "min": 0, "max": 2048, "step": 64})
+        base["optional"]["stage2_use_mstudio_proxy"] = ("BOOLEAN", {"default": False})
+        base["optional"]["stage2_proxy_only_if_gt_1k"] = ("BOOLEAN", {"default": False})
         return base
+
+    def _build_edit_image_size(self, image_size, custom_width, custom_height):
+        if image_size == "custom":
+            if int(custom_width) > 0 and int(custom_height) > 0:
+                return {"width": int(custom_width), "height": int(custom_height)}
+            return None
+        return image_size
 
     def _run_stage2_with_retries(
         self,
@@ -27,6 +62,13 @@ class PVL_fal_QwenBaseLoraQwenEditChain_API(PVL_fal_QwenBaseLoraEditChain_API):
     ):
         seed_for_item = seed if int(seed) == -1 else ((int(seed) + item_index) % 4294967296)
         edit_negative_prompt = getattr(self, "_edit_negative_prompt", "")
+        edit_guidance_scale = float(getattr(self, "_edit_guidance_scale", 4.5))
+        edit_acceleration = getattr(self, "_edit_acceleration", "regular")
+        edit_image_size = getattr(self, "_edit_image_size", "custom")
+        edit_custom_width = int(getattr(self, "_edit_custom_width", 0))
+        edit_custom_height = int(getattr(self, "_edit_custom_height", 0))
+        stage2_use_mstudio_proxy = bool(getattr(self, "_stage2_use_mstudio_proxy", False))
+        stage2_proxy_only_if_gt_1k = bool(getattr(self, "_stage2_proxy_only_if_gt_1k", False))
 
         def action(attempt, total_attempts):
             if debug_log:
@@ -38,19 +80,26 @@ class PVL_fal_QwenBaseLoraQwenEditChain_API(PVL_fal_QwenBaseLoraEditChain_API):
                 "prompt": prompt_edit,
                 "image_urls": [stage1_url],
                 "num_inference_steps": int(edit_num_inference_steps),
+                "guidance_scale": edit_guidance_scale,
                 "num_images": 1,
                 "enable_safety_checker": bool(edit_enable_safety_checker),
                 "output_format": edit_output_format,
+                "acceleration": edit_acceleration,
                 "sync_mode": False,
             }
+            size_payload = self._build_edit_image_size(
+                edit_image_size, edit_custom_width, edit_custom_height
+            )
+            if size_payload is not None:
+                arguments["image_size"] = size_payload
             if isinstance(edit_negative_prompt, str) and edit_negative_prompt.strip():
                 arguments["negative_prompt"] = edit_negative_prompt
             if image is not None and torch.is_tensor(image):
                 image_tensor = image[0] if image.ndim == 4 else image
                 second_url = ImageUtils.image_to_payload_uri(
                     image_tensor,
-                    use_mstudio_proxy=False,
-                    proxy_only_if_gt_1k=False,
+                    use_mstudio_proxy=stage2_use_mstudio_proxy,
+                    proxy_only_if_gt_1k=stage2_proxy_only_if_gt_1k,
                     timeout_sec=int(timeout_sec),
                 )
                 arguments["image_urls"].append(second_url)
@@ -106,6 +155,8 @@ class PVL_fal_QwenBaseLoraQwenEditChain_API(PVL_fal_QwenBaseLoraEditChain_API):
         base_enable_safety_checker,
         base_output_format,
         edit_num_inference_steps,
+        edit_guidance_scale,
+        edit_acceleration,
         edit_enable_safety_checker,
         edit_output_format,
         delimiter="[++]",
@@ -113,6 +164,11 @@ class PVL_fal_QwenBaseLoraQwenEditChain_API(PVL_fal_QwenBaseLoraEditChain_API):
         base_image_size="landscape_4_3",
         base_custom_width=0,
         base_custom_height=0,
+        edit_image_size="custom",
+        edit_custom_width=0,
+        edit_custom_height=0,
+        stage2_use_mstudio_proxy=False,
+        stage2_proxy_only_if_gt_1k=False,
         seed=-1,
         lora1_path="",
         lora1_scale=1.0,
@@ -125,6 +181,13 @@ class PVL_fal_QwenBaseLoraQwenEditChain_API(PVL_fal_QwenBaseLoraEditChain_API):
         **kwargs,
     ):
         self._edit_negative_prompt = edit_negative_prompt
+        self._edit_guidance_scale = float(edit_guidance_scale)
+        self._edit_acceleration = edit_acceleration
+        self._edit_image_size = edit_image_size
+        self._edit_custom_width = int(edit_custom_width)
+        self._edit_custom_height = int(edit_custom_height)
+        self._stage2_use_mstudio_proxy = bool(stage2_use_mstudio_proxy)
+        self._stage2_proxy_only_if_gt_1k = bool(stage2_proxy_only_if_gt_1k)
         return super().generate_image(
             qwen_model=qwen_model,
             prompt_base=prompt_base,

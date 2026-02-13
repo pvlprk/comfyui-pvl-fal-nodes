@@ -23,9 +23,6 @@ if errorlevel 1 (
   exit /b 1
 )
 
-set "MSG=%~1"
-if "%MSG%"=="" set "MSG=update %date% %time%"
-
 for /f "delims=" %%b in ('git branch --show-current') do set "BRANCH=%%b"
 if "%BRANCH%"=="" (
   echo [ERROR] Could not detect current branch.
@@ -34,11 +31,29 @@ if "%BRANCH%"=="" (
   exit /b 1
 )
 
+set "MSG=%~1"
+if "%MSG%"=="" (
+  REM Cleaner timestamp message (no weird locale/time formatting surprises)
+  for /f "tokens=1-3 delims=." %%a in ("%time%") do set "T=%%a"
+  set "T=%T: =0%"
+  set "MSG=update %date% %T%"
+)
+
 echo.
 echo [INFO] Current branch: %BRANCH%
 echo [INFO] Commit message: %MSG%
 
-git add -A -- .
+REM Optional but recommended: avoid push rejection if remote advanced
+git fetch --all --prune >nul 2>nul
+git pull --ff-only
+if errorlevel 1 (
+  echo [ERROR] Pull failed (non fast-forward). Resolve manually, then rerun.
+  popd >nul
+  pause
+  exit /b 1
+)
+
+git add -A
 if errorlevel 1 (
   echo [ERROR] Failed to stage changes.
   popd >nul
@@ -46,11 +61,13 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM If nothing staged, exit cleanly
 git diff --cached --quiet
-if not errorlevel 1 (
+if errorlevel 1 (
   goto do_commit
 )
-echo [INFO] No staged changes to commit. Nothing to push.
+
+echo [INFO] No changes to commit. Nothing to push.
 popd >nul
 pause
 exit /b 0

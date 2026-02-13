@@ -45,7 +45,6 @@ from .pvl_fal_remove_bg_v2 import PVL_fal_RemoveBackground_API
 from .pvl_fal_sam3_segment import PVL_fal_Sam3Segmentation_API
 from .pvl_fal_seedream4_edit import PVL_fal_Seedream4_API
 from .pvl_fal_seedream_45 import PVL_fal_Seedream45_API
-from .pvl_fal_seg_florence2 import PVL_fal_SegFlorence2_API
 from .pvl_fal_segment import PVL_fal_EvfSam_API
 from .pvl_fal_segment_x5 import PVL_fal_EvfSamX5_API
 
@@ -92,7 +91,6 @@ NODE_CLASS_MAPPINGS = {
     "PVL_fal_Sam3Segmentation_API": PVL_fal_Sam3Segmentation_API,
     "PVL_fal_Seedream4_API": PVL_fal_Seedream4_API,
     "PVL_fal_Seedream45_API": PVL_fal_Seedream45_API,
-    "PVL_fal_SegFlorence2_API": PVL_fal_SegFlorence2_API,
     "PVL_fal_EvfSam_API": PVL_fal_EvfSam_API,
     "PVL_fal_EvfSamX5_API": PVL_fal_EvfSamX5_API,
 }
@@ -143,7 +141,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PVL_fal_Sam3Segmentation_API": "PVL Sam3 Segmentation (fal.ai)",
     "PVL_fal_Seedream4_API": "FAL SeeDream4 Edit (fal.ai)",
     "PVL_fal_Seedream45_API": "PVL SeeDream 4.5 (fal.ai)",
-    "PVL_fal_SegFlorence2_API": "PVL Seg Florence2 (fal.ai)",
     "PVL_fal_EvfSam_API": "PVL Segment (fal.ai)",
     "PVL_fal_EvfSamX5_API": "PVL Segment X5 (fal.ai)",
 }

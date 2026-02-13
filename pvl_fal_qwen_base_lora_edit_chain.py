@@ -8,6 +8,8 @@ from .fal_utils import ApiHandler, ImageUtils, ResultProcessor
 
 
 class PVL_fal_QwenBaseLoraEditChain_API:
+    _MAX_CHAIN_ITEMS = 4
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -116,6 +118,12 @@ class PVL_fal_QwenBaseLoraEditChain_API:
 
     def _build_call_prompts(self, base_prompts, num_images, debug=False):
         n = max(1, int(num_images))
+        if n > int(self._MAX_CHAIN_ITEMS):
+            print(
+                f"[Qwen Chain WARNING] num_images={n} exceeds supported max "
+                f"{self._MAX_CHAIN_ITEMS}; clamping."
+            )
+            n = int(self._MAX_CHAIN_ITEMS)
         if not base_prompts:
             return []
         if len(base_prompts) >= n:
