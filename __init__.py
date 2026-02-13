@@ -49,6 +49,7 @@ from .pvl_fal_seg_florence2 import PVL_fal_SegFlorence2_API
 from .pvl_fal_segment import PVL_fal_EvfSam_API
 from .pvl_fal_segment_x5 import PVL_fal_EvfSamX5_API
 
+
 NODE_CLASS_MAPPINGS = {
     "PVL_fal_DepthAnythingV2_API": PVL_fal_DepthAnythingV2_API,
     "PVL_fal_Flux2CameraCtrl_API": PVL_fal_Flux2CameraCtrl_API,
