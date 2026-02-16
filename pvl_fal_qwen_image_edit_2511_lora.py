@@ -188,6 +188,7 @@ class PVL_fal_QwenImageEdit2511Lora_API:
                     f"num_images={num_images} sync_mode={sync_mode}"
                 )
 
+            requested_num_images = max(1, int(num_images))
             images = [image_1, image_2, image_3, image_4, image_5, image_6, image_7, image_8]
             proxy_only_if_gt_1k = bool(
                 kwargs.get("Proxy Only if >1K", kwargs.get("proxy_only_if_gt_1200px", False))
@@ -205,12 +206,22 @@ class PVL_fal_QwenImageEdit2511Lora_API:
                     "fal-ai/qwen-image-edit-2511/lora requires at least one input image."
                 )
 
+            # Fallback for non-batched input: if user asks for multiple outputs,
+            # reuse the same single input image for each requested output.
+            if len(image_urls) == 1 and requested_num_images > 1:
+                image_urls = image_urls * requested_num_images
+                if debug_log:
+                    print(
+                        "[Qwen Image Edit 2511 LoRA] single input image detected; "
+                        f"reusing it {requested_num_images} time(s) for batch generation."
+                    )
+
             arguments = {
                 "prompt": prompt,
                 "image_urls": image_urls,
                 "num_inference_steps": int(num_inference_steps),
                 "guidance_scale": float(guidance_scale),
-                "num_images": int(num_images),
+                "num_images": requested_num_images,
                 "enable_safety_checker": bool(enable_safety_checker),
                 "output_format": output_format,
                 "acceleration": acceleration,

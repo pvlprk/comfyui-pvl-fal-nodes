@@ -5,6 +5,8 @@ from .pvl_fal_qwen_base_lora_edit_chain import PVL_fal_QwenBaseLoraEditChain_API
 
 
 class PVL_fal_QwenBaseLoraQwenEditChain_API(PVL_fal_QwenBaseLoraEditChain_API):
+    _STAGE2_SEED_OFFSET = 23452345
+
     @classmethod
     def INPUT_TYPES(cls):
         base = super().INPUT_TYPES()
@@ -60,7 +62,11 @@ class PVL_fal_QwenBaseLoraQwenEditChain_API(PVL_fal_QwenBaseLoraEditChain_API):
         timeout_sec,
         debug_log,
     ):
-        seed_for_item = seed if int(seed) == -1 else ((int(seed) + item_index) % 4294967296)
+        seed_for_item = (
+            seed
+            if int(seed) == -1
+            else ((int(seed) + item_index + int(self._STAGE2_SEED_OFFSET)) % 4294967296)
+        )
         edit_negative_prompt = getattr(self, "_edit_negative_prompt", "")
         edit_guidance_scale = float(getattr(self, "_edit_guidance_scale", 4.5))
         edit_acceleration = getattr(self, "_edit_acceleration", "regular")
