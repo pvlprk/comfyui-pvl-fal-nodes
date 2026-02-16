@@ -206,15 +206,11 @@ class PVL_fal_QwenImageEdit2511Lora_API:
                     "fal-ai/qwen-image-edit-2511/lora requires at least one input image."
                 )
 
-            # Fallback for non-batched input: if user asks for multiple outputs,
-            # reuse the same single input image for each requested output.
-            if len(image_urls) == 1 and requested_num_images > 1:
-                image_urls = image_urls * requested_num_images
-                if debug_log:
-                    print(
-                        "[Qwen Image Edit 2511 LoRA] single input image detected; "
-                        f"reusing it {requested_num_images} time(s) for batch generation."
-                    )
+            if debug_log and len(image_urls) == 1 and requested_num_images > 1:
+                print(
+                    "[Qwen Image Edit 2511 LoRA] single input image provided; "
+                    f"requesting {requested_num_images} output image(s) from the same input."
+                )
 
             arguments = {
                 "prompt": prompt,
