@@ -1,3 +1,5 @@
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
 import torch
@@ -23,6 +25,7 @@ class PVL_fal_QwenImageEdit2511Lora_API:
                 "debug_log": ("BOOLEAN", {"default": False}),
             },
             "optional": {
+                "delimiter": ("STRING", {"default": "[++]", "multiline": False}),
                 "image_1": ("IMAGE",),
                 "image_2": ("IMAGE",),
                 "image_3": ("IMAGE",),
@@ -143,6 +146,103 @@ class PVL_fal_QwenImageEdit2511Lora_API:
             loras.append({"path": lora3_path.strip(), "scale": float(lora3_scale)})
         return loras[:3]
 
+    def _build_call_prompts(self, base_prompts, num_images, debug=False):
+        n = max(1, int(num_images))
+        if not base_prompts:
+            return []
+        if len(base_prompts) >= n:
+            call_prompts = base_prompts[:n]
+        else:
+            if debug:
+                print(
+                    f"[Qwen Image Edit 2511 LoRA] Provided {len(base_prompts)} prompts but "
+                    f"num_images={n}; reusing the last prompt."
+                )
+            call_prompts = base_prompts + [base_prompts[-1]] * (n - len(base_prompts))
+        return call_prompts
+
+    def _submit_and_poll(self, model_id, arguments, timeout_sec=120, debug=False):
+        if hasattr(ApiHandler, "submit_only") and hasattr(ApiHandler, "poll_and_get_result"):
+            req_info = ApiHandler.submit_only(model_id, arguments, timeout=timeout_sec, debug=debug)
+            return ApiHandler.poll_and_get_result(req_info, timeout=timeout_sec, debug=debug)
+        return ApiHandler.submit_and_get_result(model_id, arguments)
+
+    def _run_one_with_retries(
+        self,
+        item_index,
+        prompt_text,
+        image_urls,
+        num_inference_steps,
+        guidance_scale,
+        enable_safety_checker,
+        output_format,
+        acceleration,
+        sync_mode,
+        seed,
+        negative_prompt,
+        size_payload,
+        loras,
+        retries,
+        timeout_sec,
+        debug_log,
+    ):
+        seed_for_item = (
+            int(seed) if int(seed) == -1 else ((int(seed) + int(item_index)) % 4294967296)
+        )
+
+        def action(attempt, total_attempts):
+            if debug_log:
+                print(
+                    f"[Qwen Image Edit 2511 LoRA] item={item_index + 1} "
+                    f"attempt {attempt}/{total_attempts}"
+                )
+
+            arguments = {
+                "prompt": prompt_text,
+                "image_urls": image_urls,
+                "num_inference_steps": int(num_inference_steps),
+                "guidance_scale": float(guidance_scale),
+                "num_images": 1,
+                "enable_safety_checker": bool(enable_safety_checker),
+                "output_format": output_format,
+                "acceleration": acceleration,
+                "sync_mode": bool(sync_mode),
+            }
+
+            if size_payload is not None:
+                arguments["image_size"] = size_payload
+            if isinstance(negative_prompt, str) and negative_prompt.strip():
+                arguments["negative_prompt"] = negative_prompt
+            if int(seed) != -1:
+                arguments["seed"] = int(seed_for_item) & 0xFFFFFFFF
+            if loras:
+                arguments["loras"] = loras
+
+            result = self._submit_and_poll(
+                "fal-ai/qwen-image-edit-2511/lora",
+                arguments,
+                timeout_sec=timeout_sec,
+                debug=debug_log,
+            )
+            out = ResultProcessor.process_image_result(result)
+            img_tensor = out[0] if isinstance(out, tuple) else out
+            if torch.is_tensor(img_tensor) and img_tensor.ndim == 3:
+                img_tensor = img_tensor.unsqueeze(0)
+            return img_tensor
+
+        try:
+            img_tensor = ApiHandler.run_with_retries(
+                action,
+                retries=retries,
+                on_retry=lambda attempt, total_attempts, e: print(
+                    f"[Qwen Image Edit 2511 LoRA ERROR] item={item_index + 1} "
+                    f"attempt {attempt}/{total_attempts} -> {e}"
+                ),
+            )
+            return True, img_tensor, ""
+        except Exception as e:
+            return False, None, str(e)
+
     def generate_image(
         self,
         prompt,
@@ -156,6 +256,7 @@ class PVL_fal_QwenImageEdit2511Lora_API:
         retries=2,
         timeout_sec=120,
         debug_log=False,
+        delimiter="[++]",
         negative_prompt="",
         image_size="custom",
         custom_width=0,
@@ -181,14 +282,7 @@ class PVL_fal_QwenImageEdit2511Lora_API:
         width = int(custom_width) if image_size == "custom" and int(custom_width) > 0 else 256
         height = int(custom_height) if image_size == "custom" and int(custom_height) > 0 else 256
 
-        def action(attempt, total_attempts):
-            if debug_log:
-                print(
-                    f"[Qwen Image Edit 2511 LoRA] attempt {attempt}/{total_attempts} "
-                    f"num_images={num_images} sync_mode={sync_mode}"
-                )
-
-            requested_num_images = max(1, int(num_images))
+        try:
             images = [image_1, image_2, image_3, image_4, image_5, image_6, image_7, image_8]
             proxy_only_if_gt_1k = bool(
                 kwargs.get("Proxy Only if >1K", kwargs.get("proxy_only_if_gt_1200px", False))
@@ -206,34 +300,37 @@ class PVL_fal_QwenImageEdit2511Lora_API:
                     "fal-ai/qwen-image-edit-2511/lora requires at least one input image."
                 )
 
-            if debug_log and len(image_urls) == 1 and requested_num_images > 1:
+            prompt_text = str(prompt) if prompt is not None else ""
+            try:
+                # Preserve single-prompt behavior when the default delimiter token is absent.
+                if str(delimiter) == "[++]" and "[++]" not in prompt_text:
+                    base_prompts = [prompt_text.strip()] if prompt_text.strip() else []
+                else:
+                    base_prompts = [p.strip() for p in re.split(delimiter, prompt_text) if str(p).strip()]
+            except re.error:
                 print(
-                    "[Qwen Image Edit 2511 LoRA] single input image provided; "
-                    f"requesting {requested_num_images} output image(s) from the same input."
+                    f"[Qwen Image Edit 2511 LoRA WARNING] Invalid regex delimiter "
+                    f"'{delimiter}', using literal split."
                 )
+                base_prompts = [p.strip() for p in prompt_text.split(str(delimiter)) if str(p).strip()]
 
-            arguments = {
-                "prompt": prompt,
-                "image_urls": image_urls,
-                "num_inference_steps": int(num_inference_steps),
-                "guidance_scale": float(guidance_scale),
-                "num_images": requested_num_images,
-                "enable_safety_checker": bool(enable_safety_checker),
-                "output_format": output_format,
-                "acceleration": acceleration,
-                "sync_mode": bool(sync_mode),
-            }
+            if not base_prompts:
+                raise RuntimeError("No valid prompts provided.")
+
+            call_prompts = self._build_call_prompts(base_prompts, num_images, debug=debug_log)
+            n = len(call_prompts)
+            if debug_log:
+                print(
+                    f"[Qwen Image Edit 2511 LoRA] image_urls={len(image_urls)} "
+                    f"num_prompts={len(base_prompts)} calls={n}"
+                )
+                if len(image_urls) == 1 and n > 1:
+                    print(
+                        "[Qwen Image Edit 2511 LoRA] single input image provided; "
+                        f"requesting {n} output image(s) from the same input."
+                    )
 
             size_payload = self._build_image_size(image_size, custom_width, custom_height)
-            if size_payload is not None:
-                arguments["image_size"] = size_payload
-
-            if isinstance(negative_prompt, str) and negative_prompt.strip():
-                arguments["negative_prompt"] = negative_prompt
-
-            if int(seed) != -1:
-                arguments["seed"] = int(seed) & 0xFFFFFFFF
-
             loras = self._build_loras(
                 lora1_path=lora1_path,
                 lora1_scale=lora1_scale,
@@ -242,37 +339,83 @@ class PVL_fal_QwenImageEdit2511Lora_API:
                 lora3_path=lora3_path,
                 lora3_scale=lora3_scale,
             )
-            if loras:
-                arguments["loras"] = loras
 
-            if debug_log:
-                print(
-                    f"[Qwen Image Edit 2511 LoRA] image_urls={len(image_urls)} "
-                    f"loras={len(loras)} keys={list(arguments.keys())}"
+            if n == 1:
+                ok, img_tensor, last_err = self._run_one_with_retries(
+                    item_index=0,
+                    prompt_text=call_prompts[0],
+                    image_urls=image_urls,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=guidance_scale,
+                    enable_safety_checker=enable_safety_checker,
+                    output_format=output_format,
+                    acceleration=acceleration,
+                    sync_mode=sync_mode,
+                    seed=seed,
+                    negative_prompt=negative_prompt,
+                    size_payload=size_payload,
+                    loras=loras,
+                    retries=retries,
+                    timeout_sec=timeout_sec,
+                    debug_log=debug_log,
+                )
+                if ok and torch.is_tensor(img_tensor):
+                    return (img_tensor,)
+                raise RuntimeError(last_err or "All attempts failed for single request.")
+
+            print(f"[Qwen Image Edit 2511 LoRA INFO] Submitting {n} requests in parallel...")
+            results_map = {}
+            errors_map = {}
+            max_workers = min(n, 6)
+
+            def worker(i):
+                return i, *self._run_one_with_retries(
+                    item_index=i,
+                    prompt_text=call_prompts[i],
+                    image_urls=image_urls,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=guidance_scale,
+                    enable_safety_checker=enable_safety_checker,
+                    output_format=output_format,
+                    acceleration=acceleration,
+                    sync_mode=sync_mode,
+                    seed=seed,
+                    negative_prompt=negative_prompt,
+                    size_payload=size_payload,
+                    loras=loras,
+                    retries=retries,
+                    timeout_sec=timeout_sec,
+                    debug_log=debug_log,
                 )
 
-            model_id = "fal-ai/qwen-image-edit-2511/lora"
-            if hasattr(ApiHandler, "submit_only") and hasattr(ApiHandler, "poll_and_get_result"):
-                req_info = ApiHandler.submit_only(model_id, arguments, timeout=timeout_sec, debug=debug_log)
-                result = ApiHandler.poll_and_get_result(req_info, timeout=timeout_sec, debug=debug_log)
-            else:
-                result = ApiHandler.submit_and_get_result(model_id, arguments)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(worker, i) for i in range(n)]
+                for fut in as_completed(futures):
+                    i, ok, img_tensor, err = fut.result()
+                    if ok and torch.is_tensor(img_tensor):
+                        results_map[i] = img_tensor
+                    else:
+                        errors_map[i] = err or "Unknown error"
 
-            out = ResultProcessor.process_image_result(result)
-            img_tensor = out[0] if isinstance(out, tuple) else out
-            if torch.is_tensor(img_tensor) and img_tensor.ndim == 3:
-                img_tensor = img_tensor.unsqueeze(0)
-            return img_tensor
+            if not results_map:
+                sample_err = next(iter(errors_map.values()), "All FAL requests failed")
+                raise RuntimeError(sample_err)
 
-        try:
-            img_tensor = ApiHandler.run_with_retries(
-                action,
-                retries=retries,
-                on_retry=lambda attempt, total_attempts, e: print(
-                    f"[Qwen Image Edit 2511 LoRA ERROR] attempt {attempt}/{total_attempts} -> {e}"
-                ),
-            )
-            return (img_tensor,)
+            all_images = [
+                results_map[i] for i in sorted(results_map.keys()) if torch.is_tensor(results_map[i])
+            ]
+            if not all_images:
+                raise RuntimeError("No images were generated from API calls.")
+
+            final_tensor = torch.cat(all_images, dim=0)
+            failed_idxs = sorted(set(range(n)) - set(results_map.keys()))
+            for i in failed_idxs:
+                print(
+                    f"[Qwen Image Edit 2511 LoRA ERROR] Item {i + 1} failed: "
+                    f"{errors_map.get(i, 'Unknown error')}"
+                )
+
+            return (final_tensor,)
         except Exception as e:
             print(f"Error generating image with Qwen Image Edit 2511 LoRA: {str(e)}")
             return ApiHandler.handle_image_generation_error(

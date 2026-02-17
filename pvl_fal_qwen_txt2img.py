@@ -1,5 +1,9 @@
 import json
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import torch
+
 from .fal_utils import ResultProcessor, ApiHandler
 
 class PVL_fal_QwenImage_API:
@@ -21,6 +25,7 @@ class PVL_fal_QwenImage_API:
                 "negative_prompt": ("STRING", {"multiline": True, "default": ""}),
             },
             "optional": {
+                "delimiter": ("STRING", {"default": "[++]", "multiline": False}),
                 "lora1_path": ("STRING", {"default": ""}),
                 "lora1_scale": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 2.0, "step": 0.1}),
                 "lora2_path": ("STRING", {"default": ""}),
@@ -66,32 +71,93 @@ class PVL_fal_QwenImage_API:
             print(f"Warning: could not parse LoRAs input: {e}")
         return []
 
+    def _build_call_prompts(self, base_prompts, num_images):
+        n = max(1, int(num_images))
+        if not base_prompts:
+            return []
+        if len(base_prompts) >= n:
+            return base_prompts[:n]
+        print(
+            f"[Qwen Txt2Img] Provided {len(base_prompts)} prompts but num_images={n}. "
+            "Reusing the last prompt for remaining calls."
+        )
+        return base_prompts + [base_prompts[-1]] * (n - len(base_prompts))
+
+    def _submit_and_poll(self, model_id, arguments):
+        if hasattr(ApiHandler, "submit_only") and hasattr(ApiHandler, "poll_and_get_result"):
+            req_info = ApiHandler.submit_only(model_id, arguments, timeout=120, debug=False)
+            return ApiHandler.poll_and_get_result(req_info, timeout=120, debug=False)
+        return ApiHandler.submit_and_get_result(model_id, arguments)
+
+    def _run_one_call(
+        self,
+        item_index,
+        prompt_text,
+        width,
+        height,
+        steps,
+        CFG,
+        seed,
+        enable_safety_checker,
+        output_format,
+        sync_mode,
+        acceleration,
+        negative_prompt,
+        all_loras,
+    ):
+        arguments = {
+            "prompt": prompt_text,
+            "num_inference_steps": int(steps),
+            "guidance_scale": float(CFG),
+            "num_images": 1,
+            "enable_safety_checker": bool(enable_safety_checker),
+            "output_format": output_format,
+            "sync_mode": bool(sync_mode),
+            "image_size": {
+                "width": int(width),
+                "height": int(height),
+            },
+            "acceleration": acceleration,
+            "negative_prompt": negative_prompt,
+        }
+
+        if int(seed) != -1:
+            arguments["seed"] = (int(seed) + int(item_index)) % 4294967296
+
+        if all_loras:
+            arguments["loras"] = all_loras
+
+        result = self._submit_and_poll("fal-ai/qwen-image", arguments)
+        out = ResultProcessor.process_image_result(result)
+        img_tensor = out[0] if isinstance(out, tuple) else out
+        if torch.is_tensor(img_tensor) and img_tensor.ndim == 3:
+            img_tensor = img_tensor.unsqueeze(0)
+        return img_tensor
+
     def generate_image(self, prompt, width, height, steps, CFG, seed,
                        num_images, enable_safety_checker, output_format,
                       sync_mode, acceleration, negative_prompt,
                       lora1_path="", lora1_scale=1.0,
                       lora2_path="", lora2_scale=1.0,
                       lora3_path="", lora3_scale=1.0,
-                      loras=""):
+                      loras="", delimiter="[++]"):
         try:
-            arguments = {
-                "prompt": prompt,
-                "num_inference_steps": steps,
-                "guidance_scale": CFG,
-                "num_images": num_images,
-                "enable_safety_checker": enable_safety_checker,
-                "output_format": output_format,
-                "sync_mode": sync_mode,
-                "image_size": {
-                    "width": width,
-                    "height": height
-                },
-                "acceleration": acceleration,
-                "negative_prompt": negative_prompt,
-            }
+            prompt_text = str(prompt) if prompt is not None else ""
+            try:
+                # Preserve single-prompt behavior when the default delimiter token is absent.
+                if str(delimiter) == "[++]" and "[++]" not in prompt_text:
+                    base_prompts = [prompt_text.strip()] if prompt_text.strip() else []
+                else:
+                    base_prompts = [p.strip() for p in re.split(delimiter, prompt_text) if str(p).strip()]
+            except re.error:
+                print(f"[Qwen Txt2Img WARNING] Invalid regex delimiter '{delimiter}', using literal split.")
+                base_prompts = [p.strip() for p in prompt_text.split(str(delimiter)) if str(p).strip()]
 
-            if seed != -1:
-                arguments["seed"] = seed
+            if not base_prompts:
+                raise RuntimeError("No valid prompts provided.")
+
+            call_prompts = self._build_call_prompts(base_prompts, num_images)
+            n = len(call_prompts)
 
             field_loras = self._build_loras_from_fields(
                 lora1_path=lora1_path,
@@ -103,14 +169,76 @@ class PVL_fal_QwenImage_API:
             )
             json_loras = self._parse_loras_json(loras)
             all_loras = (field_loras + json_loras)[:3]
-            if all_loras:
-                arguments["loras"] = all_loras
 
-            # Call FAL API for Qwen Image
-            result = ApiHandler.submit_and_get_result("fal-ai/qwen-image", arguments)
+            if n == 1:
+                img_tensor = self._run_one_call(
+                    item_index=0,
+                    prompt_text=call_prompts[0],
+                    width=width,
+                    height=height,
+                    steps=steps,
+                    CFG=CFG,
+                    seed=seed,
+                    enable_safety_checker=enable_safety_checker,
+                    output_format=output_format,
+                    sync_mode=sync_mode,
+                    acceleration=acceleration,
+                    negative_prompt=negative_prompt,
+                    all_loras=all_loras,
+                )
+                return (img_tensor,)
 
-            # Convert result into ComfyUI image tensor
-            return ResultProcessor.process_image_result(result)
+            print(f"[Qwen Txt2Img INFO] Submitting {n} requests in parallel...")
+            results_map = {}
+            errors_map = {}
+            max_workers = min(n, 6)
+
+            def worker(i):
+                try:
+                    img_tensor = self._run_one_call(
+                        item_index=i,
+                        prompt_text=call_prompts[i],
+                        width=width,
+                        height=height,
+                        steps=steps,
+                        CFG=CFG,
+                        seed=seed,
+                        enable_safety_checker=enable_safety_checker,
+                        output_format=output_format,
+                        sync_mode=sync_mode,
+                        acceleration=acceleration,
+                        negative_prompt=negative_prompt,
+                        all_loras=all_loras,
+                    )
+                    return i, True, img_tensor, ""
+                except Exception as e:
+                    return i, False, None, str(e)
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(worker, i) for i in range(n)]
+                for fut in as_completed(futures):
+                    i, ok, img_tensor, err = fut.result()
+                    if ok and torch.is_tensor(img_tensor):
+                        results_map[i] = img_tensor
+                    else:
+                        errors_map[i] = err or "Unknown error"
+
+            if not results_map:
+                sample_err = next(iter(errors_map.values()), "All FAL requests failed")
+                raise RuntimeError(sample_err)
+
+            all_images = [
+                results_map[i] for i in sorted(results_map.keys()) if torch.is_tensor(results_map[i])
+            ]
+            if not all_images:
+                raise RuntimeError("No images were generated from API calls.")
+
+            final_tensor = torch.cat(all_images, dim=0)
+            failed_idxs = sorted(set(range(n)) - set(results_map.keys()))
+            for i in failed_idxs:
+                print(f"[Qwen Txt2Img ERROR] Item {i + 1} failed: {errors_map.get(i, 'Unknown error')}")
+
+            return (final_tensor,)
 
         except Exception as e:
             print(f"Error generating image with Qwen-Image: {str(e)}")
